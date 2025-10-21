@@ -175,6 +175,7 @@ make test
    - Kiểm tra IP và port
 
 3. **Thread errors**
+
    - Đảm bảo có pthread library
    - Kiểm tra compiler flags
 
