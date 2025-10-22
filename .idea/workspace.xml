@@ -11,24 +11,26 @@
     <generated>
       <config projectName="System_programming" targetName="run-client" />
       <config projectName="System_programming" targetName="release" />
-      <config projectName="System_programming" targetName="all" />
-      <config projectName="System_programming" targetName="debug" />
-      <config projectName="System_programming" targetName="uninstall" />
-      <config projectName="System_programming" targetName="chat_server" />
-      <config projectName="System_programming" targetName="run-server" />
       <config projectName="System_programming" targetName="chat_client" />
       <config projectName="System_programming" targetName="help" />
+      <config projectName="System_programming" targetName="all" />
+      <config projectName="System_programming" targetName="debug" />
       <config projectName="System_programming" targetName="install" />
-      <config projectName="System_programming" targetName="install-user" />
       <config projectName="System_programming" targetName="test" />
+      <config projectName="System_programming" targetName="uninstall" />
       <config projectName="System_programming" targetName="run-client-custom" />
+      <config projectName="System_programming" targetName="chat_server" />
+      <config projectName="System_programming" targetName="run-server" />
     </generated>
   </component>
   <component name="CMakeSettings">
     <configurations />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="b45a696a-7159-4204-bcaf-c654d470e9dc" name="Changes" comment="" />
+    <list default="true" id="b45a696a-7159-4204-bcaf-c654d470e9dc" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/Makefile" beforeDir="false" afterPath="$PROJECT_DIR$/Makefile" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/server.c" beforeDir="false" afterPath="$PROJECT_DIR$/server/server.c" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -108,11 +110,6 @@
         <option name="CLION.COMPOUND.BUILD" enabled="true" />
       </method>
     </configuration>
-    <configuration name="install-user" type="CLionNativeAppRunConfigurationType" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="System_programming" TARGET_NAME="install-user" CONFIG_NAME="install-user" version="1" RUN_PATH="make">
-      <method v="2">
-        <option name="CLION.COMPOUND.BUILD" enabled="true" />
-      </method>
-    </configuration>
     <configuration name="release" type="CLionNativeAppRunConfigurationType" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="System_programming" TARGET_NAME="release" CONFIG_NAME="release" version="1">
       <method v="2">
         <option name="CLION.COMPOUND.BUILD" enabled="true" />
@@ -137,7 +134,6 @@
       <item itemvalue="Native Application.chat_server" />
       <item itemvalue="Native Application.debug" />
       <item itemvalue="Native Application.help" />
-      <item itemvalue="Native Application.install-user" />
       <item itemvalue="Native Application.release" />
       <item itemvalue="Native Application.run-client-custom" />
       <item itemvalue="Native Application.test" />

@@ -44,14 +44,6 @@ install: $(SERVER_EXEC) $(CLIENT_EXEC)
 	sudo cp $(SERVER_EXEC) /usr/local/bin/
 	sudo cp $(CLIENT_EXEC) /usr/local/bin/
 
-# Install to user local bin (no sudo required)
-install-user: $(SERVER_EXEC) $(CLIENT_EXEC)
-	@mkdir -p $(HOME)/.local/bin
-	cp $(SERVER_EXEC) $(HOME)/.local/bin/
-	cp $(CLIENT_EXEC) $(HOME)/.local/bin/
-	@echo "Installed to $(HOME)/.local/bin"
-	@echo "Make sure $(HOME)/.local/bin is in your PATH"
-
 # Uninstall
 uninstall:
 	sudo rm -f /usr/local/bin/$(SERVER_EXEC) /usr/local/bin/$(CLIENT_EXEC)
@@ -98,8 +90,7 @@ help:
 	@echo "  $(SERVER_EXEC)   - Build server only"
 	@echo "  $(CLIENT_EXEC)   - Build client only"
 	@echo "  clean            - Remove build files"
-	@echo "  install          - Install executables to system (requires sudo)"
-	@echo "  install-user     - Install to ~/.local/bin (no sudo needed)"
+	@echo "  install          - Install executables to system"
 	@echo "  uninstall        - Remove executables from system"
 	@echo "  run-server       - Run server"
 	@echo "  run-client       - Run client (localhost:8080)"
@@ -109,4 +100,4 @@ help:
 	@echo "  release          - Build optimized release"
 	@echo "  help             - Show this help"
 
-.PHONY: all clean install install-user uninstall run-server run-client run-client-custom test debug release help
+.PHONY: all clean install uninstall run-server run-client run-client-custom test debug release help
