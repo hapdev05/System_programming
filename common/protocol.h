@@ -10,15 +10,17 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <time.h>
+#include "crypto.h"
 
 // Constants
 #define MAX_USERNAME_LEN 50
 #define MAX_MESSAGE_LEN 500
+#define MAX_ENCRYPTED_LEN 1024  // Để chứa ciphertext
 #define MAX_ROOM_NAME_LEN 100
 #define MAX_CLIENTS_PER_ROOM 20
 #define MAX_ROOMS 50
 #define SERVER_PORT 8080
-#define BUFFER_SIZE 1024
+#define BUFFER_SIZE 2048
 
 // Message types
 typedef enum {
@@ -35,7 +37,8 @@ typedef enum {
     MSG_ROOM_LEFT,
     MSG_ROOM_LIST,
     MSG_ERROR,
-    MSG_BROADCAST
+    MSG_BROADCAST,
+    MSG_ROOM_KEY  // Message type mới để gửi key
 } message_type_t;
 
 // Message structure
@@ -43,9 +46,14 @@ typedef struct {
     message_type_t type;
     char username[MAX_USERNAME_LEN];
     char content[MAX_MESSAGE_LEN];
+    unsigned char encrypted_content[MAX_ENCRYPTED_LEN];  // Nội dung mã hóa
+    int encrypted_len;  // Độ dài nội dung mã hóa
+    int is_encrypted;   // Flag đánh dấu message có mã hóa không
     int room_id;
     int client_id;
     time_t timestamp;
+    char room_key_hex[AES_KEY_SIZE * 2 + 1];  // Key dạng hex string
+    char room_iv_hex[AES_IV_SIZE * 2 + 1];    // IV dạng hex string
 } message_t;
 
 // Client structure
@@ -65,6 +73,7 @@ typedef struct room {
     client_t* clients;
     int client_count;
     pthread_mutex_t mutex;
+    room_crypto_t crypto;  // Thông tin mã hóa của room
     struct room* next;
 } room_t;
 
@@ -101,5 +110,10 @@ void broadcast_to_room(server_t* server, int room_id, message_t* msg, int exclud
 room_t* find_room(server_t* server, int room_id);
 room_t* create_room(server_t* server, const char* room_name);
 void list_rooms(server_t* server, int client_socket);
+
+// Encryption helper functions
+void send_room_key_to_client(int client_socket, room_t* room);
+int encrypt_message_content(message_t* msg, const room_crypto_t* crypto);
+int decrypt_message_content(message_t* msg, const room_crypto_t* crypto);
 
 #endif // PROTOCOL_H
