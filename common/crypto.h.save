@@ -1,7 +1,6 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -pthread -g $(shell pkg-config --cflags openssl 2>/dev/null)
-LDFLAGS = -pthread
-LIBS = $(shell pkg-config --libs openssl 2>/dev/null || echo "-lssl -lcrypto")
+CFLAGS = -Wall -Wextra -std=c99 -pthread -g
+LDFLAGS = -pthread -lssl -lcrypto
 
 # Directories
 SRC_DIR = .
@@ -26,11 +25,11 @@ all: $(SERVER_EXEC) $(CLIENT_EXEC)
 
 # Server target
 $(SERVER_EXEC): $(SERVER_OBJECTS)
-	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CC) $(LDFLAGS) -o $@ $^
 
 # Client target
 $(CLIENT_EXEC): $(CLIENT_OBJECTS)
-	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CC) $(LDFLAGS) -o $@ $^
 
 # Compile object files
 %.o: %.c

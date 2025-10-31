@@ -179,7 +179,6 @@ void* handle_input(void* arg) {
                 pthread_mutex_lock(&g_client.socket_mutex);
                 if (send_message(g_client.socket_fd, &msg) < 0) {
                     printf("Lỗi gửi tin nhắn!\n");
-                } 
                 pthread_mutex_unlock(&g_client.socket_mutex);
             } else {
                 printf("❌ Lỗi mã hóa tin nhắn!\n");

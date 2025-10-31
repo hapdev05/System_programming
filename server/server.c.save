@@ -106,7 +106,7 @@ void* handle_client(void* arg) {
                     strcpy(broadcast.username, "SERVER");
                     snprintf(broadcast.content, MAX_MESSAGE_LEN, "%s đã tham gia phòng", client->username);
                     broadcast.is_encrypted = 0;
-                    broadcast_to_room(&g_server, msg.room_id, &broadcast, client->client_id);
+                    broadcast_to_room(&g_server, msg.room_id, &broadcast, -1);
                     
                 } else {
                     response.type = MSG_ERROR;
@@ -145,7 +145,7 @@ void* handle_client(void* arg) {
                         message_t broadcast = msg;
                         broadcast.type = MSG_BROADCAST;
                         strcpy(broadcast.username, client->username);
-                        broadcast_to_room(&g_server, client->current_room_id, &broadcast, -1);
+                        broadcast_to_room(&g_server, client->current_room_id, &broadcast, );
                     }
                 } else {
                     message_t response;
