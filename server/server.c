@@ -23,7 +23,7 @@ void cleanup_server() {
         room = next;
     }
     pthread_mutex_unlock(&g_server.rooms_mutex);
-    
+
     // Cleanup all clients
     pthread_mutex_lock(&g_server.clients_mutex);
     client_t* client = g_server.clients;
@@ -33,32 +33,32 @@ void cleanup_server() {
         client = next;
     }
     pthread_mutex_unlock(&g_server.clients_mutex);
-    
+
     // Destroy mutexes
     pthread_mutex_destroy(&g_server.rooms_mutex);
     pthread_mutex_destroy(&g_server.clients_mutex);
-    
+
     close(g_server.server_socket);
 }
 
 void* handle_client(void* arg) {
     client_t* client = (client_t*)arg;
     message_t msg;
-    
+
     printf("Client %s (ID: %d) đã kết nối\n", client->username, client->client_id);
-    
+
     while (1) {
         if (receive_message(client->socket_fd, &msg) < 0) {
             printf("Client %s đã ngắt kết nối\n", client->username);
             break;
         }
-        
+
         // Process message based on type
         switch (msg.type) {
             case MSG_JOIN: {
                 // Client joining with username
                 strcpy(client->username, msg.username);
-                
+
                 message_t response;
                 response.type = MSG_WELCOME;
                 strcpy(response.username, "SERVER");
@@ -66,10 +66,10 @@ void* handle_client(void* arg) {
                 send_message(client->socket_fd, &response);
                 break;
             }
-            
+
             case MSG_CREATE_ROOM: {
                 room_t* new_room = create_room(&g_server, msg.content);
-                
+
                 message_t response;
                 response.type = MSG_ROOM_CREATED;
                 strcpy(response.username, "SERVER");
@@ -78,25 +78,25 @@ void* handle_client(void* arg) {
                 send_message(client->socket_fd, &response);
                 break;
             }
-            
+
             case MSG_JOIN_ROOM: {
                 room_t* room = find_room(&g_server, msg.room_id);
-                
+
                 message_t response;
                 if (room) {
                     // Leave current room if any
                     if (client->current_room_id != -1) {
                         remove_client_from_room(&g_server, client->current_room_id, client);
                     }
-                    
+
                     // Join new room
                     add_client_to_room(&g_server, msg.room_id, client);
-                    
+
                     response.type = MSG_ROOM_JOINED;
                     strcpy(response.username, "SERVER");
                     strcpy(response.content, room->room_name);
                     response.room_id = room->room_id;
-                    
+
                     // Notify other clients in room
                     message_t broadcast;
                     broadcast.type = MSG_BROADCAST;
@@ -111,7 +111,7 @@ void* handle_client(void* arg) {
                 send_message(client->socket_fd, &response);
                 break;
             }
-            
+
             case MSG_LEAVE_ROOM: {
                 if (client->current_room_id != -1) {
                     message_t broadcast;
@@ -119,9 +119,9 @@ void* handle_client(void* arg) {
                     strcpy(broadcast.username, "SERVER");
                     snprintf(broadcast.content, MAX_MESSAGE_LEN, "%s đã rời khỏi phòng", client->username);
                     broadcast_to_room(&g_server, client->current_room_id, &broadcast, client->client_id);
-                    
+
                     remove_client_from_room(&g_server, client->current_room_id, client);
-                    
+
                     message_t response;
                     response.type = MSG_ROOM_LEFT;
                     strcpy(response.username, "SERVER");
@@ -130,7 +130,7 @@ void* handle_client(void* arg) {
                 }
                 break;
             }
-            
+
             case MSG_MESSAGE: {
                 if (client->current_room_id != -1) {
                     message_t broadcast;
@@ -147,12 +147,63 @@ void* handle_client(void* arg) {
                 }
                 break;
             }
-            
+
+            case MSG_FILE_REQUEST: {
+                if (client->current_room_id != -1) {
+                    // Broadcast file notification to room
+                    message_t notification;
+                    notification.type = MSG_FILE_NOTIFICATION;
+                    strcpy(notification.username, client->username);
+                    snprintf(notification.content, MAX_MESSAGE_LEN,
+                            "[FILE] %s đang gửi file: %s", client->username, msg.content);
+                    notification.client_id = client->client_id;
+                    broadcast_to_room(&g_server, client->current_room_id, &notification, client->client_id);
+
+                    // Forward file data through server
+                    file_transfer_t ft;
+                    while (receive_file_transfer(client->socket_fd, &ft) == 0) {
+                        // Broadcast file chunk to all clients in room except sender
+                        room_t* room = find_room(&g_server, client->current_room_id);
+                        if (room) {
+                            pthread_mutex_lock(&room->mutex);
+                            client_t* current = room->clients;
+                            while (current) {
+                                if (current->client_id != client->client_id) {
+                                    send_file_transfer(current->socket_fd, &ft);
+                                }
+                                current = current->next;
+                            }
+                            pthread_mutex_unlock(&room->mutex);
+                        }
+
+                        // Check if last chunk
+                        if (ft.chunk_number >= ft.total_chunks - 1) {
+                            break;
+                        }
+                    }
+
+                    // Send completion notification
+                    message_t complete;
+                    complete.type = MSG_FILE_COMPLETE;
+                    strcpy(complete.username, "SERVER");
+                    snprintf(complete.content, MAX_MESSAGE_LEN,
+                            "File %s đã được gửi thành công", msg.content);
+                    send_message(client->socket_fd, &complete);
+                } else {
+                    message_t response;
+                    response.type = MSG_ERROR;
+                    strcpy(response.username, "SERVER");
+                    strcpy(response.content, "Bạn chưa tham gia phòng nào");
+                    send_message(client->socket_fd, &response);
+                }
+                break;
+            }
+
             case MSG_LIST_ROOMS: {
                 list_rooms(&g_server, client->socket_fd);
                 break;
             }
-            
+
             case MSG_QUIT: {
                 // Remove client from current room
                 if (client->current_room_id != -1) {
@@ -163,7 +214,7 @@ void* handle_client(void* arg) {
                     broadcast_to_room(&g_server, client->current_room_id, &broadcast, client->client_id);
                     remove_client_from_room(&g_server, client->current_room_id, client);
                 }
-                
+
                 // Remove client from server's client list
                 pthread_mutex_lock(&g_server.clients_mutex);
                 if (g_server.clients == client) {
@@ -178,22 +229,22 @@ void* handle_client(void* arg) {
                     }
                 }
                 pthread_mutex_unlock(&g_server.clients_mutex);
-                
+
                 printf("Client %s đã ngắt kết nối\n", client->username);
                 cleanup_client(client);
                 return NULL;
             }
-            
+
             default:
                 break;
         }
     }
-    
+
     // Cleanup on disconnect
     if (client->current_room_id != -1) {
         remove_client_from_room(&g_server, client->current_room_id, client);
     }
-    
+
     pthread_mutex_lock(&g_server.clients_mutex);
     if (g_server.clients == client) {
         g_server.clients = client->next;
@@ -207,7 +258,7 @@ void* handle_client(void* arg) {
         }
     }
     pthread_mutex_unlock(&g_server.clients_mutex);
-    
+
     cleanup_client(client);
     return NULL;
 }
@@ -215,49 +266,49 @@ void* handle_client(void* arg) {
 int main() {
     printf("=== CHAT SERVER ===\n");
     printf("Khởi động server trên port %d...\n", SERVER_PORT);
-    
+
     initialize_server();
     setup_server_socket(g_server.server_socket, SERVER_PORT);
-    
+
     printf("Server đã sẵn sàng chấp nhận kết nối!\n");
     printf("Nhấn Ctrl+C để dừng server\n\n");
-    
+
     while (1) {
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
-        
-        int client_socket = accept(g_server.server_socket, 
+
+        int client_socket = accept(g_server.server_socket,
                                  (struct sockaddr*)&client_addr, &client_len);
-        
+
         if (client_socket < 0) {
             perror("Accept failed");
             continue;
         }
-        
+
         // Create new client
         client_t* new_client = (client_t*)safe_malloc(sizeof(client_t));
         new_client->socket_fd = client_socket;
         new_client->client_id = g_server.next_client_id++;
         new_client->current_room_id = -1;
         strcpy(new_client->username, "");
-        
+
         // Add client to server's client list
         pthread_mutex_lock(&g_server.clients_mutex);
         new_client->next = g_server.clients;
         g_server.clients = new_client;
         pthread_mutex_unlock(&g_server.clients_mutex);
-        
+
         // Create thread for client
         if (pthread_create(&new_client->thread_id, NULL, handle_client, new_client) != 0) {
             perror("Thread creation failed");
             cleanup_client(new_client);
             continue;
         }
-        
+
         // Detach thread
         pthread_detach(new_client->thread_id);
     }
-    
+
     cleanup_server();
     return 0;
 }
