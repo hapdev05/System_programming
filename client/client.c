@@ -5,8 +5,9 @@ typedef struct {
     int socket_fd;
     char username[MAX_USERNAME_LEN];
     int current_room_id;
-    room_crypto_t current_room_crypto;  // Key và IV của room hiện tại
-    int has_room_key;  // Flag đánh dấu đã có key chưa
+    room_crypto_t current_room_crypto;
+    int has_room_key;
+    int encryption_enabled;  // Flag để biết room có bật mã hóa không
     pthread_t receive_thread;
     pthread_t input_thread;
     pthread_mutex_t socket_mutex;
@@ -33,12 +34,18 @@ void* receive_messages(void* arg) {
         } else if (msg.type == MSG_ROOM_LEFT) {
             g_client.current_room_id = -1;
             g_client.has_room_key = 0;
+            g_client.encryption_enabled = 0;
         } else if (msg.type == MSG_ROOM_KEY) {
             // Nhận key mã hóa từ server
             hex_to_key(msg.room_key_hex, g_client.current_room_crypto.key, AES_KEY_SIZE);
             hex_to_key(msg.room_iv_hex, g_client.current_room_crypto.iv, AES_IV_SIZE);
             g_client.has_room_key = 1;
+            g_client.encryption_enabled = 1;
             printf("🔑 Đã nhận key mã hóa cho phòng %d\n", msg.room_id);
+        } else if (msg.type == MSG_ENCRYPTION_ENABLED) {
+            g_client.encryption_enabled = 1;
+            print_message(&msg);
+            continue;
         } else if (msg.type == MSG_BROADCAST && msg.is_encrypted) {
             // Giải mã message
             if (g_client.has_room_key) {
@@ -48,7 +55,7 @@ void* receive_messages(void* arg) {
                     printf("❌ Không thể giải mã tin nhắn\n");
                 }
             }
-            continue;  // Không in message đã giải mã hai lần
+            continue;
         }
         
         print_message(&msg);
@@ -63,17 +70,16 @@ void* handle_input(void* arg) {
     char command[50];
     char content[MAX_MESSAGE_LEN];
     
-    printf("\n=== ENCRYPTED CHAT CLIENT ===\n");
-    printf("🔐 Chat với mã hóa AES-256 end-to-end\n\n");
+    printf("\n=== CHAT CLIENT ===\n");
     printf("Các lệnh có sẵn:\n");
     printf("  /join <username>     - Đăng nhập với username\n");
-    printf("  /create <room_name>  - Tạo phòng mới (mã hóa)\n");
+    printf("  /create <room_name>  - Tạo phòng mới\n");
     printf("  /room <room_id>      - Tham gia phòng theo ID\n");
+    printf("  /encrypt             - BẬT mã hóa cho phòng hiện tại\n");
     printf("  /leave               - Rời khỏi phòng hiện tại\n");
     printf("  /list                - Liệt kê tất cả phòng\n");
     printf("  /quit                - Thoát chương trình\n");
-    printf("  <message>            - Gửi tin nhắn mã hóa\n\n");
-    
+    printf("  <message>            - Gửi tin nhắn\n\n");
     while (g_client.running) {
         printf("> ");
         fflush(stdout);
@@ -130,6 +136,22 @@ void* handle_input(void* arg) {
                 msg.type = MSG_JOIN_ROOM;
                 msg.room_id = room_id;
                 
+            } else if (strcmp(command, "/encrypt") == 0) {
+                if (g_client.current_room_id == -1) {
+                    printf("❌ Bạn cần tham gia phòng trước!\n");
+                    pthread_mutex_unlock(&g_client.socket_mutex);
+                    continue;
+                }
+                
+                if (g_client.encryption_enabled) {
+                    printf("ℹ️  Phòng này đã được mã hóa rồi!\n");
+                    pthread_mutex_unlock(&g_client.socket_mutex);
+                    continue;
+                }
+                
+                msg.type = MSG_ENABLE_ENCRYPTION;
+                printf("🔒 Đang bật mã hóa cho phòng...\n");
+                
             } else if (strcmp(command, "/leave") == 0) {
                 msg.type = MSG_LEAVE_ROOM;
                 
@@ -157,14 +179,9 @@ void* handle_input(void* arg) {
             }
             
         } else {
-            // Regular message - cần mã hóa
+            // Regular message
             if (g_client.current_room_id == -1) {
                 printf("Bạn cần tham gia một phòng trước khi gửi tin nhắn!\n");
-                continue;
-            }
-            
-            if (!g_client.has_room_key) {
-                printf("Chưa nhận được key mã hóa của phòng!\n");
                 continue;
             }
             
@@ -174,16 +191,23 @@ void* handle_input(void* arg) {
             strncpy(msg.content, input, MAX_MESSAGE_LEN - 1);
             msg.content[MAX_MESSAGE_LEN - 1] = '\0';
             
-            // Mã hóa message
-            if (encrypt_message_content(&msg, &g_client.current_room_crypto) == 0) {
-                pthread_mutex_lock(&g_client.socket_mutex);
-                if (send_message(g_client.socket_fd, &msg) < 0) {
-                    printf("Lỗi gửi tin nhắn!\n");
-                } 
-                pthread_mutex_unlock(&g_client.socket_mutex);
+            // Kiểm tra xem có cần mã hóa không
+            if (g_client.encryption_enabled && g_client.has_room_key) {
+                // Mã hóa message
+                if (encrypt_message_content(&msg, &g_client.current_room_crypto) != 0) {
+                    printf("❌ Lỗi mã hóa tin nhắn!\n");
+                    continue;
+                }
             } else {
-                printf("❌ Lỗi mã hóa tin nhắn!\n");
+                // Gửi plaintext
+                msg.is_encrypted = 0;
             }
+            
+            pthread_mutex_lock(&g_client.socket_mutex);
+            if (send_message(g_client.socket_fd, &msg) < 0) {
+                printf("Lỗi gửi tin nhắn!\n");
+            }
+            pthread_mutex_unlock(&g_client.socket_mutex);
         }
     }
     
@@ -225,6 +249,7 @@ int main(int argc, char* argv[]) {
     g_client.socket_fd = -1;
     g_client.current_room_id = -1;
     g_client.has_room_key = 0;
+    g_client.encryption_enabled = 0;
     g_client.running = 1;
     pthread_mutex_init(&g_client.socket_mutex, NULL);
     

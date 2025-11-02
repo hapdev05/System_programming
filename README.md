@@ -144,153 +144,165 @@ make release
 - `MSG_QUIT`: Thoát
 - `MSG_BROADCAST`: Broadcast tin nhắn
 - `MSG_ERROR`: Thông báo lỗi
-# Chat Server với Mã hóa End-to-End
+# Chat System với End-to-End Encryption (E2EE)
 
-## Tính năng mã hóa
-
-- **AES-256-CBC**: Mã hóa mạnh mẽ cho mỗi room
-- **Unique Keys**: Mỗi room có key riêng biệt
-- **End-to-End**: Tin nhắn được mã hóa từ client đến client
-- **Server không đọc được**: Server chỉ chuyển tiếp ciphertext
-
-## Kiến trúc mã hóa
+## 🔐 Kiến trúc bảo mật
 
 ```
-Client A                    Server                    Client B
-   |                           |                           |
-   |--[/create room]---------->|                           |
-   |<--[room_key]--------------|                           |
-   |                           |                           |
-   |                           |<--[/join room]------------|
-   |                           |--[room_key]-------------->|
-   |                           |                           |
-   |--[encrypt("Hello")]------>|--[forward ciphertext]---->|
-   |                           |                           |--[decrypt]-->
+┌─────────────┐                    ┌──────────┐                    ┌─────────────┐
+│  Client A   │                    │  Server  │                    │  Client B   │
+│             │                    │  (Relay) │                    │             │
+│ [Plaintext] │──── Plaintext ────▶│          │──── Plaintext ────▶│ [Plaintext] │
+│             │                    │  ✓ CAN   │                    │             │
+│             │                    │   READ   │                    │             │
+│             │                    │          │                    │             │
+│ [Plaintext] │──── AES-256 ──────▶│          │──── AES-256 ──────▶│ [Plaintext] │
+│      ▼      │    Encrypted       │  ✗ CAN'T │    Encrypted       │      ▲      │
+│   Encrypt   │                    │   READ   │                    │   Decrypt   │
+└─────────────┘                    └──────────┘                    └─────────────┘
+      ▲                                                                    │
+      │                          🔑 Room Key                               │
+      └────────────────────────────────────────────────────────────────────┘
 ```
 
-## Cài đặt
+## ✨ Tính năng chính
 
-### 1. Cài đặt dependencies
+### 1. Mã hóa đầu cuối (E2EE)
+- ✅ Mã hóa AES-256-CBC cho mỗi phòng
+- ✅ Mỗi phòng có key riêng biệt
+- ✅ Server chỉ chuyển tiếp ciphertext, không đọc được nội dung
+- ✅ Chỉ các thành viên phòng mới giải mã được
 
+### 2. Chế độ linh hoạt
+- 📖 **Plaintext mode**: Mặc định, tin nhắn không mã hóa
+- 🔒 **Encrypted mode**: Bật bằng lệnh `/encrypt`
+
+### Yêu cầu hệ thống
 ```bash
 # Ubuntu/Debian
 sudo apt-get update
-sudo apt-get install build-essential libssl-dev
+sudo apt-get install build-essential libssl-dev python3 python3-pip
 
 # macOS
-brew install openssl
+brew install openssl python3
 ```
 
-### 2. Build project
+### Build project
 
-```bash
-# Clean build cũ
+# Build
 make clean
-
-# Build mới
 make all
 
-# Hoặc build với debug
-make debug
-```
-
-### 3. Chạy server
-
+### 1. Khởi động Server
 ```bash
 ./chat_server
 ```
 
-Output mong đợi:
+Output:
 ```
-=== ENCRYPTED CHAT SERVER ===
-🔐 Server với mã hóa AES-256
-Khởi động server trên port 8080...
-Server đã sẵn sàng chấp nhận kết nối!
+=== CHAT SERVER WITH END-TO-END ENCRYPTION ===
+Server đang khởi động...
+ Hỗ trợ mã hóa AES-256-CBC
+Listening on port 8080...
+
+✓ Server ready!
+Press Ctrl+C to stop
 ```
 
-### 4. Chạy client (trong terminal khác)
-
+### 2. Chạy Client (Terminal mới)
 ```bash
 ./chat_client
 ```
 
-## Sử dụng
+### 3. Demo 
 
-### Tạo room mã hóa
+#### Scenario 1: Chat Plaintext (Không mã hóa)
 
+**Client A:**
 ```bash
 > /join alice
-[12:34:56] Chào mừng alice đến với chat server mã hóa!
+[12:34:56]  Chào mừng alice đến với chat server!
 
-> /create secure_room
-[12:34:57] 🔐 Phòng secure_room đã được tạo với ID: 1 (Đã mã hóa)
-```
+> /create general
+[12:34:57] Phòng "general" đã được tạo (ID: 1) - Chưa mã hóa
 
-### Tham gia room
-
-```bash
 > /room 1
-🔑 Đã nhận key mã hóa cho phòng 1
-[12:34:58] 🔐 Đã tham gia phòng secure_room (ID: 1) - Tin nhắn được mã hóa
-```
+[12:34:58]  Đã tham gia phòng "general" (ID: 1)
 
-### Gửi tin nhắn mã hóa
-
-```bash
 > Hello everyone!
-[Local] 🔒 alice: Hello everyone!
+[12:34:59]  alice: Hello everyone!
 ```
 
-Các client khác sẽ nhận:
-```
-[12:35:00] 🔒 alice: Hello everyone!
-```
-
-### Liệt kê rooms
-
+**Client B:**
 ```bash
+> /join bob
+[12:35:00]  Chào mừng bob đến với chat server!
+
 > /list
-[12:35:01] Danh sách phòng:
-🔐 ID:1 Name:secure_room Members:2
-🔐 ID:2 Name:private_chat Members:1
+[12:35:01]  Danh sách phòng:
+╔═══════════════════════════════════════════════════════╗
+║                   DANH SÁCH PHÒNG                     ║
+╠═══════════════════════════════════════════════════════╣
+║  ID:1   │ general              │ 1 members │ Plaintext ║
+╚═══════════════════════════════════════════════════════╝
+
+> /room 1
+[12:35:02] Đã tham gia phòng "general" (ID: 1)
+[12:35:02]  SERVER: bob đã tham gia phòng
+[12:35:02]  alice: Hello everyone!
+
+> Hi alice!
+[12:35:03]  bob: Hi alice!
 ```
 
-## Chi tiết kỹ thuật
+**⚠️ Lúc này nếu bật sniffer sẽ thấy TẤT CẢ nội dung!**
 
-### Cấu trúc Room Crypto
+#### Scenario 2: Bật mã hóa E2EE
 
-```c
-typedef struct {
-    unsigned char key[32];  // AES-256 key
-    unsigned char iv[16];   // Initialization Vector
-} room_crypto_t;
+**Client A:**
+```bash
+> /encrypt
+[12:35:10] 🔐 Đang bật mã hóa E2EE cho phòng...
+[12:35:10] 🔑 Đã nhận key mã hóa cho phòng 1
+> This is a secret message
+[12:35:15] 🔒 alice: This is a secret message
 ```
 
-### Quy trình mã hóa
+**Client B cũng nhận được thông báo:**
+```bash
+[12:35:10] 🔑 Đã nhận key mã hóa cho phòng 1
+[12:35:15] 🔒 alice: This is a secret message
+> I can read it!
+[12:35:16] 🔒 bob: I can read it!
+```
 
-1. **Tạo room**: Server tạo random key và IV
-2. **Join room**: Server gửi key cho client
-3. **Gửi message**: 
-   - Client mã hóa với key
-   - Gửi ciphertext đến server
-   - Server broadcast ciphertext
-4. **Nhận message**:
-   - Client nhận ciphertext
-   - Giải mã với key
-   - Hiển thị plaintext
+**🔐 Lúc này sniffer CHỈ thấy metadata, KHÔNG thấy nội dung!**
 
-### Message Structure
+## 🔍 Testing với Packet Sniffer
 
-```c
-typedef struct {
-    message_type_t type;
-    char username[50];
-    char content[500];                    // Plaintext (local)
-    unsigned char encrypted_content[1024]; // Ciphertext (network)
-    int encrypted_len;                     // Length của ciphertext
-    int is_encrypted;                      // Flag
-    // ... other fields
-} message_t;
+### Cài đặt sniffer
+```bash
+pip3 install scapy
+```
+
+### Chạy sniffer (Terminal mới)
+```bash
+sudo python3 advanced_chat_sniffer.py
+```
+
+### Kết quả khi bắt gói tin
+
+#### Plaintext message:
+```
+[00:23:01] usagi ➜ arisu | Room 393216 📄 Text: hello 📦 HEX DUMP: 0000: 0e 00 00 00 75 73 61 67 69 00 00 00 00 00 00 00 | ....usagi....... 0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................ 0020: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................ 0030: 00 00 00 00 00 00 68 65 6c 6c 6f 00 00 00 00 00 | ......hello..... 0040: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................ 0050: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................ 0060: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+====================================================================================================
+```
+
+#### Encrypted message:
+```
+====================================================================================================
+[00:23:01] usagi ➜ arisu | Room 393216 📄 Text: unreachable 📦 HEX DUMP: 0000: 0e 00 00 00 75 73 61 67 69 00 00 00 00 00 00 00 | ....WL.W%C.LK....... 0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................ 0020: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................ 0030: 00 00 00 00 00 00 68 65 6c 6c 6f 00 00 00 00 00 | ......hA%.SC^..... 0040: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................ 0050: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................ 0060: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+====================================================================================================
 ```
 
 ## Testing

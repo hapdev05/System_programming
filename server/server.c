@@ -3,7 +3,6 @@
 server_t g_server;
 
 void initialize_server() {
-    // Khởi tạo crypto library
     init_crypto();
     
     g_server.server_socket = create_socket();
@@ -38,20 +37,17 @@ void cleanup_server() {
     pthread_mutex_destroy(&g_server.clients_mutex);
     
     close(g_server.server_socket);
-    
-    // Cleanup crypto library
     cleanup_crypto();
 }
 
 void* handle_client(void* arg) {
     client_t* client = (client_t*)arg;
     message_t msg;
-    
-    printf("Client %s (ID: %d) đã kết nối\n", client->username, client->client_id);
-    
+
+        printf("Client %s (ID: %d) đã kết nối\n", client->username, client->client_id);
+
     while (1) {
         if (receive_message(client->socket_fd, &msg) < 0) {
-            printf("Client %s đã ngắt kết nối\n", client->username);
             break;
         }
         
@@ -63,7 +59,7 @@ void* handle_client(void* arg) {
                 response.type = MSG_WELCOME;
                 strcpy(response.username, "SERVER");
                 snprintf(response.content, MAX_MESSAGE_LEN, 
-                        "Chào mừng %s đến với chat server mã hóa!", client->username);
+                        "Chào mừng %s đến với chat server!", client->username);
                 send_message(client->socket_fd, &response);
                 break;
             }
@@ -77,7 +73,6 @@ void* handle_client(void* arg) {
                 strcpy(response.content, new_room->room_name);
                 response.room_id = new_room->room_id;
                 send_message(client->socket_fd, &response);
-                
                 break;
             }
             
@@ -92,8 +87,10 @@ void* handle_client(void* arg) {
                     
                     add_client_to_room(&g_server, msg.room_id, client);
                     
-                    // Gửi key mã hóa cho client
-                    send_room_key_to_client(client->socket_fd, room);
+                    // Nếu phòng đã bật mã hóa, gửi key cho client
+                    if (room->encryption_enabled) {
+                        send_room_key_to_client(client->socket_fd, room);
+                    }
                     
                     response.type = MSG_ROOM_JOINED;
                     strcpy(response.username, "SERVER");
@@ -106,6 +103,7 @@ void* handle_client(void* arg) {
                     strcpy(broadcast.username, "SERVER");
                     snprintf(broadcast.content, MAX_MESSAGE_LEN, "%s đã tham gia phòng", client->username);
                     broadcast.is_encrypted = 0;
+                    broadcast.timestamp = time(NULL);
                     broadcast_to_room(&g_server, msg.room_id, &broadcast, client->client_id);
                     
                 } else {
@@ -117,6 +115,30 @@ void* handle_client(void* arg) {
                 break;
             }
             
+            case MSG_ENABLE_ENCRYPTION: {
+                if (client->current_room_id != -1) {
+                    room_t* room = find_room(&g_server, client->current_room_id);
+                    if (room) {
+                        if (room->encryption_enabled) {
+                            message_t response;
+                            response.type = MSG_ERROR;
+                            strcpy(response.username, "SERVER");
+                            strcpy(response.content, "Phòng này đã được mã hóa rồi");
+                            send_message(client->socket_fd, &response);
+                        } else {
+                            enable_room_encryption(&g_server, room);
+                        }
+                    }
+                } else {
+                    message_t response;
+                    response.type = MSG_ERROR;
+                    strcpy(response.username, "SERVER");
+                    strcpy(response.content, "Bạn cần tham gia phòng trước");
+                    send_message(client->socket_fd, &response);
+                }
+                break;
+            }
+            
             case MSG_LEAVE_ROOM: {
                 if (client->current_room_id != -1) {
                     message_t broadcast;
@@ -124,6 +146,7 @@ void* handle_client(void* arg) {
                     strcpy(broadcast.username, "SERVER");
                     snprintf(broadcast.content, MAX_MESSAGE_LEN, "%s đã rời khỏi phòng", client->username);
                     broadcast.is_encrypted = 0;
+                    broadcast.timestamp = time(NULL);
                     broadcast_to_room(&g_server, client->current_room_id, &broadcast, client->client_id);
                     
                     remove_client_from_room(&g_server, client->current_room_id, client);
@@ -141,10 +164,13 @@ void* handle_client(void* arg) {
                 if (client->current_room_id != -1) {
                     room_t* room = find_room(&g_server, client->current_room_id);
                     if (room) {
-                        // Broadcast message đã mã hóa
+                        // Broadcast message với timestamp và username
                         message_t broadcast = msg;
                         broadcast.type = MSG_BROADCAST;
                         strcpy(broadcast.username, client->username);
+                        broadcast.timestamp = time(NULL);
+                        broadcast.client_id = client->client_id;
+                        broadcast.room_id = client->current_room_id;
                         broadcast_to_room(&g_server, client->current_room_id, &broadcast, -1);
                     }
                 } else {
@@ -169,6 +195,7 @@ void* handle_client(void* arg) {
                     strcpy(broadcast.username, "SERVER");
                     snprintf(broadcast.content, MAX_MESSAGE_LEN, "%s đã rời khỏi phòng", client->username);
                     broadcast.is_encrypted = 0;
+                    broadcast.timestamp = time(NULL);
                     broadcast_to_room(&g_server, client->current_room_id, &broadcast, client->client_id);
                     remove_client_from_room(&g_server, client->current_room_id, client);
                 }
@@ -187,7 +214,6 @@ void* handle_client(void* arg) {
                 }
                 pthread_mutex_unlock(&g_server.clients_mutex);
                 
-                printf("Client %s đã ngắt kết nối\n", client->username);
                 cleanup_client(client);
                 return NULL;
             }
@@ -220,15 +246,16 @@ void* handle_client(void* arg) {
 }
 
 int main() {
-    printf("=== ENCRYPTED CHAT SERVER ===\n");
-    printf("🔐 Server với mã hóa AES-256\n");
-    printf("Khởi động server trên port %d...\n", SERVER_PORT);
+    printf("=== CHAT SERVER WITH END-TO-END ENCRYPTION ===\n");
+    printf("Server đang khởi động...\n");
+    printf("Hỗ trợ mã hóa AES-256-CBC\n");
+    printf("Listening on port %d...\n\n", SERVER_PORT);
     
     initialize_server();
     setup_server_socket(g_server.server_socket, SERVER_PORT);
     
-    printf("Server đã sẵn sàng chấp nhận kết nối!\n");
-    printf("Nhấn Ctrl+C để dừng server\n\n");
+    printf("✓ Server ready!\n");
+    printf("Press Ctrl+C to stop\n\n");
     
     while (1) {
         struct sockaddr_in client_addr;

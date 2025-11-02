@@ -178,14 +178,13 @@ int decrypt_message_content(message_t* msg, const room_crypto_t* crypto) {
     }
     
     plaintext[plaintext_len] = '\0';
-    strncpy(msg->content, (char*)plaintext, MAX_MESSAGE_LEN - 1);
+   strncpy(msg->content, (char*)plaintext, MAX_MESSAGE_LEN - 1);
     msg->content[MAX_MESSAGE_LEN - 1] = '\0';
     
     return 0;
 }
 
 void enable_room_encryption(server_t* server, room_t* room) {
-    (void)server;
     pthread_mutex_lock(&room->mutex);
     
     if (room->encryption_enabled) {
