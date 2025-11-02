@@ -62,7 +62,6 @@ void* handle_client(void* arg) {
                 message_t response;
                 response.type = MSG_WELCOME;
                 strcpy(response.username, "SERVER");
-                snprintf(response.content, MAX_MESSAGE_LEN, "Chào mừng %s đến với chat server!", client->username);
                 send_message(client->socket_fd, &response);
                 break;
             }
