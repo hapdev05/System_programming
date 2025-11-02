@@ -70,7 +70,6 @@ void print_message(message_t* msg) {
 
     switch (msg->type) {
         case MSG_WELCOME:
-            printf("[%s] Chào mừng %s!\n", time_str, msg->username);
             break;
         case MSG_ROOM_CREATED:
             printf("[%s] Phòng %s đã được tạo với ID: %d\n", time_str, msg->content, msg->room_id);
@@ -301,7 +300,7 @@ int send_file(int socket_fd, const char* filepath, int sender_id, const char* se
         }
 
         chunk_number++;
-        printf("Đã gửi chunk %d/%d (%.1f%%)\n",
+        printf("",
                chunk_number, total_chunks, (chunk_number * 100.0) / total_chunks);
     }
 
