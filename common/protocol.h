@@ -45,7 +45,11 @@ typedef enum {
     MSG_FILE_REJECT,
     MSG_FILE_DATA,
     MSG_FILE_COMPLETE,
-    MSG_FILE_NOTIFICATION
+    MSG_FILE_NOTIFICATION,
+    // Encryption-related messages
+    MSG_ENABLE_ENCRYPTION,
+    MSG_ROOM_KEY,
+    MSG_ENCRYPTION_ENABLED
 } message_type_t;
 
 // Message structure
