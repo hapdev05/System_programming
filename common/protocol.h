@@ -20,7 +20,9 @@
 #define MAX_CLIENTS_PER_ROOM 20
 #define MAX_ROOMS 50
 #define SERVER_PORT 8080
-#define BUFFER_SIZE 2048
+#define BUFFER_SIZE 1024
+#define MAX_FILENAME_LEN 256
+#define FILE_CHUNK_SIZE 4096
 
 // Message types
 typedef enum {
@@ -38,9 +40,12 @@ typedef enum {
     MSG_ROOM_LIST,
     MSG_ERROR,
     MSG_BROADCAST,
-    MSG_ROOM_KEY,
-    MSG_ENABLE_ENCRYPTION,     // Lệnh bật mã hóa
-    MSG_ENCRYPTION_ENABLED     // Thông báo đã bật mã hóa
+    MSG_FILE_REQUEST,
+    MSG_FILE_ACCEPT,
+    MSG_FILE_REJECT,
+    MSG_FILE_DATA,
+    MSG_FILE_COMPLETE,
+    MSG_FILE_NOTIFICATION
 } message_type_t;
 
 // Message structure
@@ -57,6 +62,19 @@ typedef struct {
     char room_key_hex[AES_KEY_SIZE * 2 + 1];
     char room_iv_hex[AES_IV_SIZE * 2 + 1];
 } message_t;
+
+// File transfer structure
+typedef struct {
+    char filename[MAX_FILENAME_LEN];
+    long file_size;
+    int sender_id;
+    int receiver_id;
+    char sender_name[MAX_USERNAME_LEN];
+    int chunk_number;
+    int total_chunks;
+    char data[FILE_CHUNK_SIZE];
+    int data_size;
+} file_transfer_t;
 
 // Client structure
 typedef struct client {
@@ -95,6 +113,12 @@ typedef struct {
 int send_message(int socket_fd, message_t* msg);
 int receive_message(int socket_fd, message_t* msg);
 void print_message(message_t* msg);
+
+// File transfer functions
+int send_file_transfer(int socket_fd, file_transfer_t* ft);
+int receive_file_transfer(int socket_fd, file_transfer_t* ft);
+int send_file(int socket_fd, const char* filepath, int sender_id, const char* sender_name);
+int receive_file(int socket_fd, const char* save_dir);
 
 // Utility functions
 void error_exit(const char* msg);
