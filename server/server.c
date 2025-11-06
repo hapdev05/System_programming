@@ -50,9 +50,6 @@ void* handle_client(void* arg) {
 
     printf("Client %s (ID: %d) đã kết nối\n", client->username, client->client_id);
 
-
-        printf("Client %s (ID: %d) đã kết nối\n", client->username, client->client_id);
-
     while (1) {
         if (receive_message(client->socket_fd, &msg) < 0) {
             break;
@@ -114,8 +111,6 @@ void* handle_client(void* arg) {
                     // Thông báo cho các client khác
                     message_t broadcast;
                     broadcast.type = MSG_BROADCAST;
-                    strcpy(broadcast.username, "SERVER");
-                    snprintf(broadcast.content, MAX_MESSAGE_LEN, "%s đã tham gia phòng", client->username);
                     broadcast.is_encrypted = 0;
                     broadcast.timestamp = time(NULL);
                     broadcast_to_room(&g_server, msg.room_id, &broadcast, client->client_id);
@@ -205,7 +200,7 @@ void* handle_client(void* arg) {
                     notification.type = MSG_FILE_NOTIFICATION;
                     strcpy(notification.username, client->username);
                     snprintf(notification.content, MAX_MESSAGE_LEN,
-                            "[FILE] %s đang gửi file: %s", client->username, msg.content);
+                    "[FILE] %.100s đang gửi file: %.300s", client->username, msg.content);
                     notification.client_id = client->client_id;
                     broadcast_to_room(&g_server, client->current_room_id, &notification, client->client_id);
 
@@ -237,7 +232,7 @@ void* handle_client(void* arg) {
                     complete.type = MSG_FILE_COMPLETE;
                     strcpy(complete.username, "SERVER");
                     snprintf(complete.content, MAX_MESSAGE_LEN,
-                            "File %s đã được gửi thành công", msg.content);
+                            "File %.300s đã được gửi thành công", msg.content);
                     send_message(client->socket_fd, &complete);
                 } else {
                     message_t response;

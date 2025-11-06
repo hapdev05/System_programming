@@ -421,8 +421,6 @@ int send_file(int socket_fd, const char* filepath, int sender_id, const char* se
         }
 
         chunk_number++;
-        printf("",
-               chunk_number, total_chunks, (chunk_number * 100.0) / total_chunks);
     }
 
     fclose(file);
@@ -463,10 +461,6 @@ int receive_file(int socket_fd, const char* save_dir) {
         if (ft.data_size > 0) {
             fwrite(ft.data, 1, ft.data_size, file);
             total_received += ft.data_size;
-
-            printf("Đã nhận chunk %d/%d (%.1f%%)\n",
-                   ft.chunk_number + 1, ft.total_chunks,
-                   (total_received * 100.0) / ft.file_size);
         }
 
         expected_chunk++;
