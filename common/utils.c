@@ -300,7 +300,7 @@ int send_file(int socket_fd, const char* filepath, int sender_id, const char* se
         }
 
         chunk_number++;
-        printf("",
+        printf("Đã gửi chunk %d/%d (%.1f%%)\n",
                chunk_number, total_chunks, (chunk_number * 100.0) / total_chunks);
     }
 
