@@ -10,10 +10,12 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <time.h>
+#include "crypto.h"
 
 // Constants
 #define MAX_USERNAME_LEN 50
 #define MAX_MESSAGE_LEN 500
+#define MAX_ENCRYPTED_LEN 1024
 #define MAX_ROOM_NAME_LEN 100
 #define MAX_CLIENTS_PER_ROOM 20
 #define MAX_ROOMS 50
@@ -43,7 +45,11 @@ typedef enum {
     MSG_FILE_REJECT,
     MSG_FILE_DATA,
     MSG_FILE_COMPLETE,
-    MSG_FILE_NOTIFICATION
+    MSG_FILE_NOTIFICATION,
+    // Encryption-related messages
+    MSG_ENABLE_ENCRYPTION,
+    MSG_ROOM_KEY,
+    MSG_ENCRYPTION_ENABLED
 } message_type_t;
 
 // Message structure
@@ -51,9 +57,14 @@ typedef struct {
     message_type_t type;
     char username[MAX_USERNAME_LEN];
     char content[MAX_MESSAGE_LEN];
+    unsigned char encrypted_content[MAX_ENCRYPTED_LEN];
+    int encrypted_len;
+    int is_encrypted;
     int room_id;
     int client_id;
     time_t timestamp;
+    char room_key_hex[AES_KEY_SIZE * 2 + 1];
+    char room_iv_hex[AES_IV_SIZE * 2 + 1];
 } message_t;
 
 // File transfer structure
@@ -86,6 +97,8 @@ typedef struct room {
     client_t* clients;
     int client_count;
     pthread_mutex_t mutex;
+    room_crypto_t crypto;
+    int encryption_enabled;  // 0 = plaintext, 1 = encrypted
     struct room* next;
 } room_t;
 
@@ -101,7 +114,6 @@ typedef struct {
 } server_t;
 
 // Function prototypes
-// Protocol functions
 int send_message(int socket_fd, message_t* msg);
 int receive_message(int socket_fd, message_t* msg);
 void print_message(message_t* msg);
@@ -128,5 +140,11 @@ void broadcast_to_room(server_t* server, int room_id, message_t* msg, int exclud
 room_t* find_room(server_t* server, int room_id);
 room_t* create_room(server_t* server, const char* room_name);
 void list_rooms(server_t* server, int client_socket);
+
+// Encryption helper functions
+void send_room_key_to_client(int client_socket, room_t* room);
+int encrypt_message_content(message_t* msg, const room_crypto_t* crypto);
+int decrypt_message_content(message_t* msg, const room_crypto_t* crypto);
+void enable_room_encryption(server_t* server, room_t* room);
 
 #endif // PROTOCOL_H

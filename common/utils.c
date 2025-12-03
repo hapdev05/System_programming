@@ -72,22 +72,34 @@ void print_message(message_t* msg) {
         case MSG_WELCOME:
             break;
         case MSG_ROOM_CREATED:
-            printf("[%s] Phòng %s đã được tạo với ID: %d\n", time_str, msg->content, msg->room_id);
+            printf("[%s] 📝 Phòng %s đã được tạo với ID: %d (chưa mã hóa)\n", 
+                   time_str, msg->content, msg->room_id);
             break;
         case MSG_ROOM_JOINED:
-            printf("[%s] Đã tham gia phòng %s (ID: %d)\n", time_str, msg->content, msg->room_id);
+            printf("[%s] 🚪 Đã tham gia phòng %s (ID: %d)\n", 
+                   time_str, msg->content, msg->room_id);
             break;
         case MSG_ROOM_LEFT:
             printf("[%s] Đã rời khỏi phòng\n", time_str);
             break;
         case MSG_BROADCAST:
-            printf("[%s] %s: %s\n", time_str, msg->username, msg->content);
+            if (msg->is_encrypted) {
+                printf("[%s] 🔒 %s: %s\n", time_str, msg->username, msg->content);
+            } else {
+                printf("[%s] %s: %s\n", time_str, msg->username, msg->content);
+            }
             break;
         case MSG_ERROR:
-            printf("[%s] Lỗi: %s\n", time_str, msg->content);
+            printf("[%s] ❌ Lỗi: %s\n", time_str, msg->content);
             break;
         case MSG_ROOM_LIST:
-            printf("[%s] Danh sách phòng: %s\n", time_str, msg->content);
+            printf("[%s] Danh sách phòng:\n%s", time_str, msg->content);
+            break;
+        case MSG_ROOM_KEY:
+            printf("[%s] 🔑 Đã nhận key mã hóa cho phòng %d\n", time_str, msg->room_id);
+            break;
+        case MSG_ENCRYPTION_ENABLED:
+            printf("[%s] 🔒 Mã hóa đã được BẬT cho phòng này. Tất cả tin nhắn từ giờ sẽ được mã hóa AES-256.\n", time_str);
             break;
         case MSG_FILE_NOTIFICATION:
             printf("[%s] %s\n", time_str, msg->content);
@@ -115,6 +127,105 @@ void cleanup_room(room_t* room) {
     }
 }
 
+// Encryption helper functions
+void send_room_key_to_client(int client_socket, room_t* room) {
+    message_t key_msg;
+    memset(&key_msg, 0, sizeof(message_t));
+    
+    key_msg.type = MSG_ROOM_KEY;
+    key_msg.room_id = room->room_id;
+    strcpy(key_msg.username, "SERVER");
+    
+    // Chuyển key và IV sang hex
+    key_to_hex(room->crypto.key, AES_KEY_SIZE, key_msg.room_key_hex);
+    key_to_hex(room->crypto.iv, AES_IV_SIZE, key_msg.room_iv_hex);
+    
+    send_message(client_socket, &key_msg);
+}
+
+int encrypt_message_content(message_t* msg, const room_crypto_t* crypto) {
+    int plaintext_len = strlen(msg->content);
+    
+    int encrypted_len = encrypt_message(
+        (unsigned char*)msg->content, 
+        plaintext_len,
+        crypto->key, 
+        crypto->iv, 
+        msg->encrypted_content
+    );
+    
+    if (encrypted_len < 0) {
+        return -1;
+    }
+    
+    msg->encrypted_len = encrypted_len;
+    msg->is_encrypted = 1;
+    
+    // Xóa plaintext
+    memset(msg->content, 0, MAX_MESSAGE_LEN);
+    
+    return 0;
+}
+
+int decrypt_message_content(message_t* msg, const room_crypto_t* crypto) {
+    unsigned char plaintext[MAX_MESSAGE_LEN];
+    
+    int plaintext_len = decrypt_message(
+        msg->encrypted_content, 
+        msg->encrypted_len,
+        crypto->key, 
+        crypto->iv, 
+        plaintext
+    );
+    
+    if (plaintext_len < 0) {
+        return -1;
+    }
+    
+    plaintext[plaintext_len] = '\0';
+    strncpy(msg->content, (char*)plaintext, MAX_MESSAGE_LEN - 1);
+    msg->content[MAX_MESSAGE_LEN - 1] = '\0';
+    
+    return 0;
+}
+
+void enable_room_encryption(server_t* server, room_t* room) {
+    (void)server;
+    pthread_mutex_lock(&room->mutex);
+    
+    if (room->encryption_enabled) {
+        pthread_mutex_unlock(&room->mutex);
+        return;
+    }
+    
+    // Tạo key và IV cho room
+    generate_room_key(&room->crypto);
+    room->encryption_enabled = 1;
+    
+    // Gửi key cho tất cả client trong room
+    client_t* current = room->clients;
+    while (current) {
+        send_room_key_to_client(current->socket_fd, room);
+        current = current->next;
+    }
+    
+    // Thông báo cho tất cả client
+    message_t notify;
+    memset(&notify, 0, sizeof(message_t));
+    notify.type = MSG_ENCRYPTION_ENABLED;
+    strcpy(notify.username, "SERVER");
+    strcpy(notify.content, "Mã hóa đã được bật cho phòng này");
+    notify.room_id = room->room_id;
+    
+    current = room->clients;
+    while (current) {
+        send_message(current->socket_fd, &notify);
+        current = current->next;
+    }
+    
+    pthread_mutex_unlock(&room->mutex);
+}
+
 // Thread-safe room management functions
 void add_client_to_room(server_t* server, int room_id, client_t* client) {
     room_t* room = find_room(server, room_id);
@@ -123,6 +234,7 @@ void add_client_to_room(server_t* server, int room_id, client_t* client) {
     pthread_mutex_lock(&room->mutex);
 
     // Add client to room's client list
+    
     client->next = room->clients;
     room->clients = client;
     room->client_count++;
@@ -138,6 +250,7 @@ void remove_client_from_room(server_t* server, int room_id, client_t* client) {
     pthread_mutex_lock(&room->mutex);
 
     // Remove client from room's client list
+    
     if (room->clients == client) {
         room->clients = client->next;
     } else {
@@ -199,6 +312,11 @@ room_t* create_room(server_t* server, const char* room_name) {
     new_room->client_count = 0;
     pthread_mutex_init(&new_room->mutex, NULL);
 
+    
+    // KHÔNG tạo key ngay - chỉ tạo khi có yêu cầu bật mã hóa
+    new_room->encryption_enabled = 0;
+    memset(&new_room->crypto, 0, sizeof(room_crypto_t));
+    
     new_room->next = server->rooms;
     server->rooms = new_room;
 
@@ -221,6 +339,9 @@ void list_rooms(server_t* server, int client_socket) {
         char room_info[200];
         snprintf(room_info, sizeof(room_info), "ID:%d Name:%s Members:%d\n",
                 current->room_id, current->room_name, current->client_count);
+        const char* encryption_status = current->encryption_enabled ? "🔒" : "📖";
+        snprintf(room_info, sizeof(room_info), "%s ID:%d Name:%s Members:%d\n", 
+                encryption_status, current->room_id, current->room_name, current->client_count);
         strcat(room_list, room_info);
         current = current->next;
     }
@@ -300,8 +421,6 @@ int send_file(int socket_fd, const char* filepath, int sender_id, const char* se
         }
 
         chunk_number++;
-        printf("Đã gửi chunk %d/%d (%.1f%%)\n",
-               chunk_number, total_chunks, (chunk_number * 100.0) / total_chunks);
     }
 
     fclose(file);
@@ -342,10 +461,6 @@ int receive_file(int socket_fd, const char* save_dir) {
         if (ft.data_size > 0) {
             fwrite(ft.data, 1, ft.data_size, file);
             total_received += ft.data_size;
-
-            printf("Đã nhận chunk %d/%d (%.1f%%)\n",
-                   ft.chunk_number + 1, ft.total_chunks,
-                   (total_received * 100.0) / ft.file_size);
         }
 
         expected_chunk++;
