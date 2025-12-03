@@ -36,8 +36,10 @@ void* receive_messages(void* arg) {
         }
 
         // Update client state based on message type
-        
-        // Xử lý các loại message
+        if (msg.type == MSG_ROOM_CREATED) {
+            print_message(&msg);
+            continue;
+        }
         if (msg.type == MSG_ROOM_JOINED) {
             g_client.current_room_id = msg.room_id;
         } else if (msg.type == MSG_ROOM_LEFT) {
