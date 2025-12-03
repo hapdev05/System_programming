@@ -1,6 +1,7 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -pthread -g
+CFLAGS = -Wall -Wextra -std=c99 -pthread -g $(shell pkg-config --cflags openssl 2>/dev/null)
 LDFLAGS = -pthread
+LIBS = $(shell pkg-config --libs openssl 2>/dev/null || echo "-lssl -lcrypto")
 
 # Directories
 SRC_DIR = .
@@ -9,8 +10,8 @@ CLIENT_DIR = client
 COMMON_DIR = common
 
 # Source files
-SERVER_SOURCES = $(SERVER_DIR)/server.c $(COMMON_DIR)/utils.c
-CLIENT_SOURCES = $(CLIENT_DIR)/client.c $(COMMON_DIR)/utils.c
+SERVER_SOURCES = $(SERVER_DIR)/server.c $(COMMON_DIR)/utils.c $(COMMON_DIR)/crypto.c
+CLIENT_SOURCES = $(CLIENT_DIR)/client.c $(COMMON_DIR)/utils.c $(COMMON_DIR)/crypto.c
 
 # Object files
 SERVER_OBJECTS = $(SERVER_SOURCES:.c=.o)
@@ -25,11 +26,11 @@ all: $(SERVER_EXEC) $(CLIENT_EXEC)
 
 # Server target
 $(SERVER_EXEC): $(SERVER_OBJECTS)
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Client target
 $(CLIENT_EXEC): $(CLIENT_OBJECTS)
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Compile object files
 %.o: %.c
@@ -39,7 +40,7 @@ $(CLIENT_EXEC): $(CLIENT_OBJECTS)
 clean:
 	rm -f $(SERVER_OBJECTS) $(CLIENT_OBJECTS) $(SERVER_EXEC) $(CLIENT_EXEC)
 
-# Install (copy executables to /usr/local/bin)
+# Install
 install: $(SERVER_EXEC) $(CLIENT_EXEC)
 	sudo cp $(SERVER_EXEC) /usr/local/bin/
 	sudo cp $(CLIENT_EXEC) /usr/local/bin/
@@ -52,28 +53,22 @@ uninstall:
 run-server: $(SERVER_EXEC)
 	./$(SERVER_EXEC)
 
-# Run client (with default server)
+# Run client
 run-client: $(CLIENT_EXEC)
 	./$(CLIENT_EXEC)
 
 # Run client with custom server
 run-client-custom: $(CLIENT_EXEC)
 	@echo "Usage: make run-client-custom SERVER_IP=<ip> SERVER_PORT=<port>"
-	@echo "Example: make run-client-custom SERVER_IP=192.168.1.100 SERVER_PORT=8080"
 	./$(CLIENT_EXEC) $(SERVER_IP) $(SERVER_PORT)
 
-# Test the system
+# Test
 test: $(SERVER_EXEC) $(CLIENT_EXEC)
 	@echo "Starting server in background..."
 	./$(SERVER_EXEC) &
-	SERVER_PID=$$!
 	sleep 2
 	@echo "Starting test client..."
-	./$(CLIENT_EXEC) &
-	CLIENT_PID=$$!
-	sleep 5
-	@echo "Stopping test..."
-	kill $$SERVER_PID $$CLIENT_PID 2>/dev/null || true
+	./$(CLIENT_EXEC)
 
 # Debug build
 debug: CFLAGS += -DDEBUG -g3
@@ -93,7 +88,7 @@ help:
 	@echo "  install          - Install executables to system"
 	@echo "  uninstall        - Remove executables from system"
 	@echo "  run-server       - Run server"
-	@echo "  run-client       - Run client (localhost:8080)"
+	@echo "  run-client       - Run client"
 	@echo "  run-client-custom- Run client with custom server"
 	@echo "  test             - Run automated test"
 	@echo "  debug            - Build with debug symbols"
