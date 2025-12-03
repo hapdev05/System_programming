@@ -1,5 +1,13 @@
 #include "../common/protocol.h"
 
+typedef struct {
+    int client_socket;
+    int client_id;
+    int room_id;
+    char username[MAX_USERNAME_LEN];
+    char filepath[MAX_MESSAGE_LEN];
+} file_handler_args_t;
+
 server_t g_server;
 
 void initialize_server() {
@@ -42,6 +50,52 @@ void cleanup_server() {
 
     close(g_server.server_socket);
     cleanup_crypto();
+}
+
+void* handle_file_transfer(void* arg) {
+    file_handler_args_t* args = (file_handler_args_t*)arg;
+
+    printf("[FILE] Đang nhận file từ %s...\n", args->username);
+
+    // Receive file data from sender
+    file_transfer_t ft;
+    int chunks_received = 0;
+
+    while (receive_file_transfer(args->client_socket, &ft) == 0) {
+        chunks_received++;
+
+        // Broadcast file chunk to all clients in room except sender
+        room_t* room = find_room(&g_server, args->room_id);
+        if (room) {
+            pthread_mutex_lock(&room->mutex);
+            client_t* current = room->clients;
+            while (current) {
+                if (current->client_id != args->client_id) {
+                    send_file_transfer(current->socket_fd, &ft);
+                }
+                current = current->next;
+            }
+            pthread_mutex_unlock(&room->mutex);
+        }
+
+        // Check if last chunk
+        if (ft.chunk_number >= ft.total_chunks - 1) {
+            printf("[FILE] Đã nhận %d chunks từ %s\n", chunks_received, args->username);
+            break;
+        }
+    }
+
+    // Send completion notification to sender
+    message_t complete;
+    complete.type = MSG_FILE_COMPLETE;
+    strcpy(complete.username, "SERVER");
+    snprintf(complete.content, MAX_MESSAGE_LEN,
+            "File %s đã được gửi thành công", args->filepath);
+    send_message(args->client_socket, &complete);
+
+    // Cleanup
+    free(args);
+    return NULL;
 }
 
 void* handle_client(void* arg) {
@@ -200,40 +254,31 @@ void* handle_client(void* arg) {
                     notification.type = MSG_FILE_NOTIFICATION;
                     strcpy(notification.username, client->username);
                     snprintf(notification.content, MAX_MESSAGE_LEN,
-                    "[FILE] %.100s đang gửi file: %.300s", client->username, msg.content);
+                            "[FILE] %s đang gửi file: %s", client->username, msg.content);
                     notification.client_id = client->client_id;
                     broadcast_to_room(&g_server, client->current_room_id, &notification, client->client_id);
 
-                    // Forward file data through server
-                    file_transfer_t ft;
-                    while (receive_file_transfer(client->socket_fd, &ft) == 0) {
-                        // Broadcast file chunk to all clients in room except sender
-                        room_t* room = find_room(&g_server, client->current_room_id);
-                        if (room) {
-                            pthread_mutex_lock(&room->mutex);
-                            client_t* current = room->clients;
-                            while (current) {
-                                if (current->client_id != client->client_id) {
-                                    send_file_transfer(current->socket_fd, &ft);
-                                }
-                                current = current->next;
-                            }
-                            pthread_mutex_unlock(&room->mutex);
-                        }
+                    file_handler_args_t* args = (file_handler_args_t*)malloc(sizeof(file_handler_args_t));
+                    args->client_socket = client->socket_fd;
+                    args->client_id = client->client_id;
+                    args->room_id = client->current_room_id;
+                    strncpy(args->username, client->username, MAX_USERNAME_LEN - 1);
+                    strncpy(args->filepath, msg.content, MAX_MESSAGE_LEN - 1);
 
-                        // Check if last chunk
-                        if (ft.chunk_number >= ft.total_chunks - 1) {
-                            break;
-                        }
+                    pthread_t file_thread;
+                    if (pthread_create(&file_thread, NULL, handle_file_transfer, args) != 0) {
+                        perror("Failed to create file transfer thread");
+                        free(args);
+
+                        message_t response;
+                        response.type = MSG_ERROR;
+                        strcpy(response.username, "SERVER");
+                        strcpy(response.content, "Lỗi xử lý file");
+                        send_message(client->socket_fd, &response);
+                    } else {
+                        pthread_detach(file_thread);
+                        printf("[FILE] Thread xử lý file đã được tạo cho %s\n", client->username);
                     }
-
-                    // Send completion notification
-                    message_t complete;
-                    complete.type = MSG_FILE_COMPLETE;
-                    strcpy(complete.username, "SERVER");
-                    snprintf(complete.content, MAX_MESSAGE_LEN,
-                            "File %.300s đã được gửi thành công", msg.content);
-                    send_message(client->socket_fd, &complete);
                 } else {
                     message_t response;
                     response.type = MSG_ERROR;

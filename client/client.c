@@ -19,6 +19,7 @@ typedef struct {
     pthread_t input_thread;
     pthread_mutex_t socket_mutex;
     int running;
+    int receiving_file;
 } client_data_t;
 
 client_data_t g_client;
@@ -28,6 +29,14 @@ void* receive_messages(void* arg) {
     message_t msg;
 
     while (g_client.running) {
+        pthread_mutex_lock(&g_client.socket_mutex);
+        if (g_client.receiving_file) {
+            pthread_mutex_unlock(&g_client.socket_mutex);
+            sleep(1);
+            continue;
+        }
+        pthread_mutex_unlock(&g_client.socket_mutex);
+
         if (receive_message(g_client.socket_fd, &msg) < 0) {
             if (g_client.running) {
                 printf("\nKết nối đến server bị ngắt!\n");
@@ -36,55 +45,35 @@ void* receive_messages(void* arg) {
         }
 
         // Update client state based on message type
-        if (msg.type == MSG_ROOM_CREATED) {
-            print_message(&msg);
-            continue;
-        }
         if (msg.type == MSG_ROOM_JOINED) {
             g_client.current_room_id = msg.room_id;
         } else if (msg.type == MSG_ROOM_LEFT) {
             g_client.current_room_id = -1;
         } else if (msg.type == MSG_FILE_NOTIFICATION) {
-            // Incoming file notification
             print_message(&msg);
             printf("Đang nhận file...\n");
 
-            // Create downloads directory if not exists
-            #ifdef _WIN32
-                _mkdir("downloads");
-            #else
-                mkdir("downloads", 0755);
-            #endif
+#ifdef _WIN32
+            _mkdir("downloads");
+#else
+            mkdir("downloads", 0755);
+#endif
 
-            // Receive file and save to downloads folder
+            pthread_mutex_lock(&g_client.socket_mutex);
+            g_client.receiving_file = 1;
+            pthread_mutex_unlock(&g_client.socket_mutex);
+
             if (receive_file(g_client.socket_fd, "downloads") < 0) {
                 printf("Lỗi nhận file!\n");
             } else {
-                printf("File đã được lưu vào trong thư mục: downloads/\n");
+                printf("File đã được lưu vào thư mục: downloads/\n");
             }
-            continue;
-            g_client.has_room_key = 0;
-            g_client.encryption_enabled = 0;
-        } else if (msg.type == MSG_ROOM_KEY) {
-            // Nhận key mã hóa từ server
-            hex_to_key(msg.room_key_hex, g_client.current_room_crypto.key, AES_KEY_SIZE);
-            hex_to_key(msg.room_iv_hex, g_client.current_room_crypto.iv, AES_IV_SIZE);
-            g_client.has_room_key = 1;
-            g_client.encryption_enabled = 1;
-            printf("🔑 Đã nhận key mã hóa cho phòng %d\n", msg.room_id);
-        } else if (msg.type == MSG_ENCRYPTION_ENABLED) {
-            g_client.encryption_enabled = 1;
-            print_message(&msg);
-            continue;
-        } else if (msg.type == MSG_BROADCAST && msg.is_encrypted) {
-            // Giải mã message
-            if (g_client.has_room_key) {
-                if (decrypt_message_content(&msg, &g_client.current_room_crypto) == 0) {
-                    print_message(&msg);
-                } else {
-                    printf("❌ Không thể giải mã tin nhắn\n");
-                }
-            }
+
+            // *** THÊM: Kết thúc nhận file ***
+            pthread_mutex_lock(&g_client.socket_mutex);
+            g_client.receiving_file = 0;
+            pthread_mutex_unlock(&g_client.socket_mutex);
+
             continue;
         }
 
@@ -122,7 +111,7 @@ void* handle_input(void* arg) {
         }
 
         // Remove newline
-        
+
         input[strcspn(input, "\n")] = 0;
 
         if (strlen(input) == 0) {
@@ -130,7 +119,7 @@ void* handle_input(void* arg) {
         }
 
         // Parse command
-        
+
         if (input[0] == '/') {
             sscanf(input, "%s %[^\n]", command, content);
 
@@ -173,23 +162,23 @@ void* handle_input(void* arg) {
                 msg.type = MSG_JOIN_ROOM;
                 msg.room_id = room_id;
 
-                
+
             } else if (strcmp(command, "/encrypt") == 0) {
                 if (g_client.current_room_id == -1) {
                     printf("❌ Bạn cần tham gia phòng trước!\n");
                     pthread_mutex_unlock(&g_client.socket_mutex);
                     continue;
                 }
-                
+
                 if (g_client.encryption_enabled) {
                     printf("ℹ️  Phòng này đã được mã hóa rồi!\n");
                     pthread_mutex_unlock(&g_client.socket_mutex);
                     continue;
                 }
-                
+
                 msg.type = MSG_ENABLE_ENCRYPTION;
                 printf("🔒 Đang bật mã hóa cho phòng...\n");
-                
+
             } else if (strcmp(command, "/leave") == 0) {
                 msg.type = MSG_LEAVE_ROOM;
 
@@ -209,37 +198,42 @@ void* handle_input(void* arg) {
                     continue;
                 }
 
-                // Check if file exists
                 FILE* test_file = fopen(content, "rb");
                 if (!test_file) {
                     printf("Không thể mở file: %s\n", content);
-                    printf("Gợi ý:\n");
-                    printf("  - Nếu file ở thư mục cha: ../test.txt\n");
-                    printf("  - Nếu file ở thư mục hiện tại: ./test.txt hoặc test.txt\n");
                     pthread_mutex_unlock(&g_client.socket_mutex);
                     continue;
                 }
                 fclose(test_file);
 
-                // Send file request message
+                // *** THÊM: Đánh dấu đang gửi file ***
+                g_client.receiving_file = 1;
+
+                // Send file request
                 msg.type = MSG_FILE_REQUEST;
                 strncpy(msg.content, content, MAX_MESSAGE_LEN - 1);
                 msg.content[MAX_MESSAGE_LEN - 1] = '\0';
 
                 if (send_message(g_client.socket_fd, &msg) < 0) {
                     printf("Lỗi gửi yêu cầu file!\n");
+                    g_client.receiving_file = 0;
                     pthread_mutex_unlock(&g_client.socket_mutex);
                     continue;
                 }
 
+                sleep(1);
+
                 // Send file data
                 if (send_file(g_client.socket_fd, content, g_client.current_room_id, g_client.username) < 0) {
                     printf("Lỗi gửi file!\n");
+                } else {
+                    printf("File đã được gửi thành công!\n");
                 }
 
+                // *** THÊM: Kết thúc gửi file ***
+                g_client.receiving_file = 0;
                 pthread_mutex_unlock(&g_client.socket_mutex);
                 continue;
-
             } else if (strcmp(command, "/quit") == 0) {
                 msg.type = MSG_QUIT;
                 g_client.running = 0;
@@ -273,7 +267,7 @@ void* handle_input(void* arg) {
             strncpy(msg.content, input, MAX_MESSAGE_LEN - 1);
             msg.content[MAX_MESSAGE_LEN - 1] = '\0';
 
-            
+
             // Kiểm tra xem có cần mã hóa không
             if (g_client.encryption_enabled && g_client.has_room_key) {
                 // Mã hóa message
@@ -285,7 +279,7 @@ void* handle_input(void* arg) {
                 // Gửi plaintext
                 msg.is_encrypted = 0;
             }
-            
+
             pthread_mutex_lock(&g_client.socket_mutex);
             if (send_message(g_client.socket_fd, &msg) < 0) {
                 printf("Lỗi gửi tin nhắn!\n");
@@ -324,53 +318,54 @@ int main(int argc, char* argv[]) {
     if (argc >= 3) {
         server_port = atoi(argv[2]);
     }
-    
+
     // Khởi tạo crypto library
     init_crypto();
-    
+
     // Khởi tạo client
     g_client.socket_fd = -1;
     g_client.current_room_id = -1;
     g_client.has_room_key = 0;
     g_client.encryption_enabled = 0;
     g_client.running = 1;
+    g_client.receiving_file = 0;
     pthread_mutex_init(&g_client.socket_mutex, NULL);
-    
+
     // Setup signal handler
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
-    
+
     // Kết nối đến server
     g_client.socket_fd = create_socket();
-    
+
     struct sockaddr_in server_addr;
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(server_port);
     if (inet_pton(AF_INET, server_ip, &server_addr.sin_addr) <= 0) {
         error_exit("Invalid server address");
     }
-    
+
     if (connect(g_client.socket_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         error_exit("Connection failed");
     }
-    
+
     printf("Đã kết nối đến server %s:%d\n", server_ip, server_port);
-    
+
     // Tạo threads
     if (pthread_create(&g_client.receive_thread, NULL, receive_messages, NULL) != 0) {
         error_exit("Failed to create receive thread");
     }
-    
+
     if (pthread_create(&g_client.input_thread, NULL, handle_input, NULL) != 0) {
         error_exit("Failed to create input thread");
     }
-    
+
     // Đợi threads kết thúc
     pthread_join(g_client.receive_thread, NULL);
     pthread_join(g_client.input_thread, NULL);
-    
+
     cleanup_client_data();
     cleanup_crypto();
-    
+
     return 0;
 }
